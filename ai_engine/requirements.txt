@@ -14,3 +14,7 @@ langchain-google-genai
 
 # 🔒 THE FIX: Force OpenAI to stay in version 1.x
 openai<2.0.0
+
+#UI
+streamlit
+requests

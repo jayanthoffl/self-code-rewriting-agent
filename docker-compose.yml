@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  ai_brain:
+    build: ./ai_engine
+    container_name: auto_dev_brain
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ai_engine:/app
+      - ./temp_repos:/app/temp_repos
+      # CRITICAL: Allows the container to run Docker commands
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      - .env
+    restart: always

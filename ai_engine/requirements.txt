@@ -1,0 +1,16 @@
+# Core API
+fastapi
+uvicorn
+python-dotenv
+
+# Infrastructure
+docker
+gitpython
+
+# AI Agents
+crewai
+crewai-tools
+langchain-google-genai
+
+# 🔒 THE FIX: Force OpenAI to stay in version 1.x
+openai<2.0.0

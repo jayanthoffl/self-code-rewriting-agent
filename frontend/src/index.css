@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #000000;
+  color: #00ff41; /* Matrix Green */
+  font-family: 'Courier New', Courier, monospace;
+}

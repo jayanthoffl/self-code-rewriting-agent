@@ -3,7 +3,7 @@ version: '3.8'
 services:
   ai_brain:
     build: ./ai_engine
-    container_name: auto_dev_brain
+    container_name: auto_dev_brain_v2
     ports:
       - "8000:8000"
     volumes:

@@ -1,5 +1,18 @@
+# Secrets
 .env
+.env.local
+
+# Python
 __pycache__/
+*.pyc
 venv/
-temp_repos/
+.pytest_cache/
 *.log
+
+# Docker
+temp_repos/
+
+# React / Node (CRITICAL!)
+node_modules/
+frontend/dist/
+frontend/.DS_Store

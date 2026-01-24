@@ -4,11 +4,10 @@ import logging
 import threading
 import time
 from fastapi import FastAPI, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import docker
 from git import Repo
-
-# Import the Agent
 from agent import fix_code
 
 # --- Setup ---
@@ -17,113 +16,108 @@ logger = logging.getLogger("AutoDev")
 
 app = FastAPI(title="Auto-Dev Brain")
 
-# Config
+# --- UNLOCK THE GATES (CORS) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- GLOBAL STATE ---
+SYSTEM_STATE = {
+    "status": "IDLE",       # IDLE, DEPLOYING, RUNNING, CRASHED, FIXING, SUCCESS, STOPPED
+    "logs": [],             # Live log buffer
+    "repo_path": ""
+}
+ACTIVE_CONTAINER_NAME = None
+
+# --- CONFIG ---
 WORKSPACE_DIR = os.getenv("WORKSPACE_DIR", "/app/temp_repos")
-# We still keep this as a "Admin Fallback" for your own use
 ADMIN_GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") 
 
-# Initialize Docker
+# --- DOCKER INIT ---
 try:
     docker_client = docker.from_env()
     logger.info("✅ Docker Client connected.")
 except Exception as e:
     logger.error(f"❌ Docker Error: {e}")
 
-# --- NEW DATA MODEL ---
 class Request(BaseModel):
     repo_url: str
-    github_token: str | None = None # <--- The Guest Key
+    github_token: str | None = None 
 
-# --- Helper: Push to GitHub ---
+# --- HELPER FUNCTIONS ---
+def add_log(message):
+    """Saves logs to memory so React can see them."""
+    timestamp = time.strftime("%H:%M:%S")
+    entry = f"[{timestamp}] {message}"
+    print(entry)
+    SYSTEM_STATE["logs"].append(entry)
+    if len(SYSTEM_STATE["logs"]) > 100:
+        SYSTEM_STATE["logs"].pop(0)
+
 def push_changes(repo_path, token):
-    """
-    Commits and pushes using the SPECIFIC USER'S token.
-    """
     if not token:
-        logger.warning("⚠️ No GitHub Token provided for this session. Skipping push.")
+        add_log("⚠️ No Token. Skipping Push.")
         return
-
     try:
-        logger.info("📤 Attempting to push fix to GitHub...")
+        add_log("📤 Pushing fix to GitHub...")
         repo = Repo(repo_path)
-        
-        # Configure Git Identity (The Bot)
         repo.config_writer().set_value("user", "name", "AutoDev Bot").release()
         repo.config_writer().set_value("user", "email", "bot@autodev.ai").release()
-        
-        # 1. Add
         repo.git.add(all=True)
-        
-        # 2. Check
         if not repo.is_dirty():
-            logger.warning("⚠️ No file changes detected.")
             return
-
-        # 3. Commit
         repo.index.commit("🩹 Auto-fix: AI Agent repaired the crash")
-        
-        # 4. Push (Injecting the User's specific token)
         origin = repo.remote(name='origin')
-        current_url = origin.url
-        
-        # Clean potential existing auth to avoid conflicts
-        clean_url = current_url.split("@")[-1] if "@" in current_url else current_url
-        if "https://" in clean_url:
-            clean_url = clean_url.replace("https://", "")
-            
-        # Construct Authenticated URL: https://USER_TOKEN@github.com/user/repo
-        auth_url = f"https://{token}@{clean_url}"
-        origin.set_url(auth_url)
-            
+        clean_url = origin.url.split("@")[-1].replace("https://", "")
+        origin.set_url(f"https://{token}@{clean_url}")
         origin.push()
-        logger.info("🚀 SUCCESS: Fix pushed to GitHub!")
-        
+        add_log("🚀 SUCCESS: Fix pushed to GitHub!")
+        SYSTEM_STATE["status"] = "SUCCESS"
     except Exception as e:
-        logger.error(f"❌ Git Push Failed: {e}")
+        add_log(f"❌ Git Push Failed: {e}")
 
-# --- Core Logic ---
-
+# --- CORE LOGIC ---
 def monitor_container(container, repo_path, token):
-    logger.info(f"👀 Monitoring {container.name} for crashes...")
+    add_log(f"👀 Monitoring {container.name}...")
+    SYSTEM_STATE["status"] = "RUNNING"
     try:
         for line in container.logs(stream=True, follow=True):
             log_line = line.decode('utf-8').strip()
-            print(f"[{container.name}] {log_line}")
+            add_log(f"[App] {log_line}")
             
             if "Traceback" in log_line or "Exception" in log_line:
-                logger.error("🚨 CRASH DETECTED! Triggering AI Agent...")
+                add_log("🚨 CRASH DETECTED! Awakening AI...")
+                SYSTEM_STATE["status"] = "CRASHED"
                 
-                # 1. Capture Logs
                 full_logs = container.logs(tail=20).decode('utf-8')
+                SYSTEM_STATE["status"] = "FIXING"
+                add_log("🧠 AI is diagnosing...")
                 
-                # 2. Fix Code
                 fix_code(repo_path, full_logs)
-                
-                # 3. Push to GitHub (Using the User's Token)
                 push_changes(repo_path, token)
                 
-                logger.info("🩹 Fix applied. Stopping monitor.")
+                add_log("🩹 Patch applied.")
                 break
     except Exception as e:
-        logger.error(f"Monitor stopped: {e}")
+        add_log(f"Monitor stopped: {e}")
 
 def run_setup(repo_url: str, request_token: str = None):
+    SYSTEM_STATE["logs"] = [] # Clear logs
+    SYSTEM_STATE["status"] = "DEPLOYING"
+    
     repo_name = repo_url.split("/")[-1].replace(".git", "")
     local_path = os.path.join(WORKSPACE_DIR, repo_name)
     
-    # --- PRIORITY AUTH SYSTEM ---
-    # 1. User provided a token in the UI? Use that.
-    # 2. No? Fallback to the Admin token in .env (for you).
-    # 3. No? Use None (Public Read-Only).
     active_token = request_token if request_token else ADMIN_GITHUB_TOKEN
     
-    # 1. Clean & Clone
     if os.path.exists(local_path):
         shutil.rmtree(local_path)
     
-    logger.info(f"⬇️ Cloning {repo_url}...")
-    
-    # Construct Clone URL
+    add_log(f"⬇️ Cloning {repo_url}...")
     auth_url = repo_url
     if active_token and "github.com" in repo_url:
         clean_url = repo_url.replace("https://", "")
@@ -131,70 +125,68 @@ def run_setup(repo_url: str, request_token: str = None):
 
     try:
         Repo.clone_from(auth_url, local_path)
-        logger.info(f"✅ Cloned to {local_path}")
     except Exception as e:
-        logger.error(f"❌ Clone failed: {e}")
+        add_log(f"❌ Clone failed: {e}")
         return
 
-    # 2. Inject Dockerfile
     template_path = os.path.join(os.getcwd(), "templates", "Dockerfile.python")
-    target_dockerfile = os.path.join(local_path, "Dockerfile")
-    if not os.path.exists(target_dockerfile):
-        shutil.copy(template_path, target_dockerfile)
+    shutil.copy(template_path, os.path.join(local_path, "Dockerfile"))
 
-    # 3. Build Image
     image_tag = f"autodev-{repo_name.lower()}"
-    logger.info(f"🔨 Building {image_tag}...")
+    add_log(f"🔨 Building Environment...")
     try:
         docker_client.images.build(path=local_path, tag=image_tag, rm=True)
-    except Exception as e:
-        logger.error(f"❌ Build Failed: {e}")
-        return
+        
+        # --- NEW: TRACK CONTAINER NAME ---
+        container_name = f"run-{repo_name.lower()}"
+        global ACTIVE_CONTAINER_NAME
+        ACTIVE_CONTAINER_NAME = container_name
+        # ---------------------------------
 
-    # 4. Cleanup old container
-    container_name = f"run-{repo_name.lower()}"
-    try:
-        old = docker_client.containers.get(container_name)
-        old.stop()
-        old.remove()
-    except:
-        pass
-
-    # 5. Detect Entry Point
-    entry_file = "main.py"
-    if not os.path.exists(os.path.join(local_path, "main.py")):
-        for root, dirs, files in os.walk(local_path):
-            if "main.py" in files:
-                rel_path = os.path.relpath(os.path.join(root, "main.py"), local_path)
-                entry_file = rel_path.replace("\\", "/")
-                break
-    
-    # 6. Run & Monitor
-    logger.info(f"🚀 Launching Container: {container_name}")
-    try:
+        try:
+            old = docker_client.containers.get(container_name)
+            old.stop()
+            old.remove()
+        except: pass
+        
+        add_log("🚀 Launching...")
         container = docker_client.containers.run(
-            image_tag,
-            name=container_name,
-            detach=True,
-            command=f"python {entry_file}" 
+            image_tag, name=container_name, detach=True, command="python main.py"
         )
-        logger.info(f"✅ Container {container_name} is running!")
-
+        
         monitor_thread = threading.Thread(
             target=monitor_container, 
-            args=(container, local_path, active_token) # Pass the token down!
+            args=(container, local_path, active_token)
         )
         monitor_thread.start()
         
     except Exception as e:
-        logger.error(f"❌ Run Failed: {e}")
+        add_log(f"❌ Error: {e}")
 
+# --- API ENDPOINTS ---
 @app.post("/deploy")
 async def deploy(req: Request, tasks: BackgroundTasks):
-    # Pass the user's specific token to the background task
     tasks.add_task(run_setup, req.repo_url, req.github_token)
-    return {"status": "Deploying", "repo": req.repo_url}
+    return {"status": "Started"}
 
-@app.get("/")
-async def root():
-    return {"message": "Auto-Dev Brain is running!"}
+@app.get("/status")
+async def get_status():
+    return SYSTEM_STATE
+
+@app.post("/stop")
+async def stop_process():
+    """Kills the active container and stops the agent."""
+    global ACTIVE_CONTAINER_NAME
+    add_log("🛑 Manual Stop Signal Received.")
+    
+    if ACTIVE_CONTAINER_NAME:
+        try:
+            container = docker_client.containers.get(ACTIVE_CONTAINER_NAME)
+            container.stop(timeout=1)
+            container.remove()
+            add_log(f"✅ Container {ACTIVE_CONTAINER_NAME} destroyed.")
+        except Exception as e:
+            add_log(f"⚠️ Could not stop container: {e}")
+            
+    SYSTEM_STATE["status"] = "STOPPED"
+    return {"message": "Process Stopped"}

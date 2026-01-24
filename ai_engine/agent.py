@@ -11,7 +11,7 @@ os.environ["OPENAI_API_KEY"] = "NA"
 # In agent.py
 llm = ChatGoogleGenerativeAI(
     # model="gemini-2.5-flash",  # <--- CHANGE THIS back to the stable name
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     verbose=True,
     temperature=0.5,
     google_api_key=os.getenv("GOOGLE_API_KEY")

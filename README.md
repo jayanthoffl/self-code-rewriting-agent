@@ -61,7 +61,7 @@ AutoDev operates on a closed-loop control system inspired by biological self-hea
 
 ---
 
-## 🧠 System Architecture
+##  System Architecture
 
 The solution is built on a microservices architecture to ensure separation of concerns between the UI, the Orchestrator, and the Execution Runtime.
 

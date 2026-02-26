@@ -30,14 +30,14 @@ By combining **Containerization (Docker)** with **Large Language Model (LLM) rea
 
 ---
 
-## 📸 Interface
+## Interface
 
 ![Dashboard Preview](https://via.placeholder.com/800x400?text=AutoDev+Mission+Control+Interface)
 *The Matrix-style "Mission Control" dashboard provides real-time telemetry streaming, visual status indicators, and manual override controls.*
 
 ---
 
-## ⚙️ How It Works (The "Loop")
+## How It Works (The "Loop")
 
 AutoDev operates on a closed-loop control system inspired by biological self-healing mechanisms:
 

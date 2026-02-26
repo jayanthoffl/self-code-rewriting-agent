@@ -1,4 +1,4 @@
-# ⚡ AutoDev v2.0: Autonomous Self-Healing Infrastructure
+#  AutoDev v2.0: Autonomous Self-Healing Infrastructure
 
 <div align="center">
 
@@ -22,7 +22,7 @@
 
 ---
 
-## 📖 Overview
+## Overview
 
 In traditional software development, a runtime crash requires a human engineer to wake up, read logs, reproduce the error, and push a fix. **AutoDev v2.0 automates this entire lifecycle.**
 
